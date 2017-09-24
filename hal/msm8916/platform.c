@@ -321,7 +321,7 @@ int pcm_device_table[AUDIO_USECASE_MAX][2] = {
 };
 
 /* Array to store sound devices */
-static const char * const device_table[SND_DEVICE_MAX] = {
+static char * device_table[SND_DEVICE_MAX] = {
     [SND_DEVICE_NONE] = "none",
     /* Playback sound devices */
     [SND_DEVICE_OUT_HANDSET] = "handset",
@@ -3218,10 +3218,10 @@ snd_device_t platform_get_input_snd_device(void *platform, audio_devices_t out_d
                        (channel_mask == AUDIO_CHANNEL_IN_STEREO)) &&
                        (my_data->source_mic_type & SOURCE_DUAL_MIC)) {
                 snd_device = SND_DEVICE_IN_VOICE_REC_DMIC_STEREO;
-            } else if (((int)channel_mask == AUDIO_CHANNEL_INDEX_MASK_3) &&
+            } else if ((channel_mask == AUDIO_CHANNEL_INDEX_MASK_3) &&
                        (my_data->source_mic_type & SOURCE_THREE_MIC)) {
                 snd_device = SND_DEVICE_IN_THREE_MIC;
-            } else if (((int)channel_mask == AUDIO_CHANNEL_INDEX_MASK_4) &&
+            } else if ((channel_mask == AUDIO_CHANNEL_INDEX_MASK_4) &&
                        (my_data->source_mic_type & SOURCE_QUAD_MIC)) {
                 snd_device = SND_DEVICE_IN_QUAD_MIC;
             }
@@ -3238,10 +3238,10 @@ snd_device_t platform_get_input_snd_device(void *platform, audio_devices_t out_d
                 (channel_mask == AUDIO_CHANNEL_IN_STEREO)) &&
                 (my_data->source_mic_type & SOURCE_DUAL_MIC)) {
                 snd_device = SND_DEVICE_IN_UNPROCESSED_STEREO_MIC;
-            } else if (((int)channel_mask == AUDIO_CHANNEL_INDEX_MASK_3) &&
+            } else if ((channel_mask == AUDIO_CHANNEL_INDEX_MASK_3) &&
                 (my_data->source_mic_type & SOURCE_THREE_MIC)) {
                 snd_device = SND_DEVICE_IN_UNPROCESSED_THREE_MIC;
-            } else if (((int)channel_mask == AUDIO_CHANNEL_INDEX_MASK_4) &&
+            } else if ((channel_mask == AUDIO_CHANNEL_INDEX_MASK_4) &&
                        (my_data->source_mic_type & SOURCE_QUAD_MIC)) {
                 snd_device = SND_DEVICE_IN_UNPROCESSED_QUAD_MIC;
             } else {
@@ -5408,5 +5408,16 @@ int platform_set_sidetone(struct audio_device *adev,
         else
             audio_route_reset_and_update_path(adev->audio_route, str);
     }
+    return 0;
+}
+
+int platform_set_snd_device_name(snd_device_t device, const char *name)
+{
+    if ((device < SND_DEVICE_MIN) || (device >= SND_DEVICE_MAX)) {
+         ALOGE("℅s:: Invalid snd_device = ℅d", __func__, device);
+         return -EINVAL;
+    }
+
+    device_table[device] = strdup(name);
     return 0;
 }
