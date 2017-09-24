@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2016, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2017, The Linux Foundation. All rights reserved.
  * Not a contribution.
  *
  * Copyright (C) 2009 The Android Open Source Project
@@ -512,11 +512,35 @@ bool AudioPolicyManagerCustom::isOffloadSupported(const audio_offload_info_t& of
         return false;
     }
 
-    if ((((offloadInfo.format & AUDIO_FORMAT_MAIN_MASK) == AUDIO_FORMAT_WMA) && (offloadInfo.bit_rate > MAX_BITRATE_WMA)) ||
-        (((offloadInfo.format & AUDIO_FORMAT_MAIN_MASK) == AUDIO_FORMAT_WMA_PRO) && (offloadInfo.bit_rate > MAX_BITRATE_WMA_PRO)) ||
-        (((offloadInfo.format & AUDIO_FORMAT_MAIN_MASK) == AUDIO_FORMAT_WMA_PRO) && (offloadInfo.bit_rate > MAX_BITRATE_WMA_LOSSLESS))){
-        //Safely choose the min bitrate as threshold and leave the restriction to NT decoder as we can't distinguish wma pro and wma lossless here.
-        ALOGD("offload disabled for WMA/WMA_PRO/WMA_LOSSLESS clips with bit rate over maximum supported value");
+    // check against wma std bit rate restriction
+    if ((offloadInfo.format & AUDIO_FORMAT_MAIN_MASK) == AUDIO_FORMAT_WMA) {
+        int32_t sr_id = -1;
+        uint32_t min_bitrate, max_bitrate;
+        for (int i = 0; i < WMA_STD_NUM_FREQ; i++) {
+            if (offloadInfo.sample_rate == wmaStdSampleRateTbl[i]) {
+                sr_id = i;
+                break;
+            }
+        }
+        if ((sr_id < 0) || (popcount(offloadInfo.channel_mask) > 2)
+                || (popcount(offloadInfo.channel_mask) <= 0)) {
+            ALOGE("invalid sample rate or channel count");
+            return false;
+        }
+
+        min_bitrate = wmaStdMinAvgByteRateTbl[sr_id][popcount(offloadInfo.channel_mask) - 1];
+        max_bitrate = wmaStdMaxAvgByteRateTbl[sr_id][popcount(offloadInfo.channel_mask) - 1];
+        if ((offloadInfo.bit_rate > max_bitrate) || (offloadInfo.bit_rate < min_bitrate)) {
+            ALOGD("offload disabled for WMA clips with unsupported bit rate");
+            ALOGD("bit_rate %d, max_bitrate %d, min_bitrate %d", offloadInfo.bit_rate, max_bitrate, min_bitrate);
+            return false;
+        }
+    }
+
+    // Safely choose the min bitrate as threshold and leave the restriction to NT decoder as we can't distinguish wma pro and wma lossless here.
+    if ((((offloadInfo.format & AUDIO_FORMAT_MAIN_MASK) == AUDIO_FORMAT_WMA_PRO) && (offloadInfo.bit_rate > MAX_BITRATE_WMA_PRO)) ||
+        (((offloadInfo.format & AUDIO_FORMAT_MAIN_MASK) == AUDIO_FORMAT_WMA_PRO) && (offloadInfo.bit_rate > MAX_BITRATE_WMA_LOSSLESS))) {
+        ALOGD("offload disabled for WMA_PRO/WMA_LOSSLESS clips with bit rate over maximum supported value");
         return false;
     }
 #endif
@@ -1129,8 +1153,10 @@ status_t AudioPolicyManagerCustom::startSource(sp<AudioOutputDescriptor> outputD
         beaconMuteLatency = handleEventForBeacon(STARTING_OUTPUT);
     }
 
+    // force device change if the output is inactive and no audio patch is already present.
     // check active before incrementing usage count
-    bool force = !outputDesc->isActive();
+    bool force = !outputDesc->isActive() &&
+            (outputDesc->getPatchHandle() == AUDIO_PATCH_HANDLE_NONE);
 
     // increment usage count for this stream on the requested output:
     // NOTE that the usage count is the same for duplicated output and hardware output which is
@@ -1150,12 +1176,17 @@ status_t AudioPolicyManagerCustom::startSource(sp<AudioOutputDescriptor> outputD
         for (size_t i = 0; i < mOutputs.size(); i++) {
             sp<AudioOutputDescriptor> desc = mOutputs.valueAt(i);
             if (desc != outputDesc) {
-                // force a device change if any other output is managed by the same hw
-                // module and has a current device selection that differs from selected device.
+                // force a device change if any other output is:
+                // - managed by the same hw module
+                // - has a current device selection that differs from selected device.
+                // - supports currently selected device
+                // - has an active audio patch
                 // In this case, the audio HAL must receive the new device selection so that it can
                 // change the device currently selected by the other active output.
                 if (outputDesc->sharesHwModuleWith(desc) &&
-                    desc->device() != device) {
+                        desc->device() != device &&
+                        desc->supportedDevices() & device &&
+                        desc->getPatchHandle() != AUDIO_PATCH_HANDLE_NONE) {
                     force = true;
                 }
                 // wait for audio on other active outputs to be presented when starting

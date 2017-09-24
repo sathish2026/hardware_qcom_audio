@@ -386,13 +386,6 @@ static void request_out_focus(struct stream_out *out, long ns)
 {
     struct audio_device *adev = out->dev;
 
-    if (out->routing_change) {
-        out->routing_change = false;
-        // must be checked for backward compatibility
-        if (adev->adm_on_routing_change)
-            adev->adm_on_routing_change(adev->adm_data, out->handle);
-    }
-
     if (adev->adm_request_focus_v2)
         adev->adm_request_focus_v2(adev->adm_data, out->handle, ns);
     else if (adev->adm_request_focus)
@@ -402,12 +395,6 @@ static void request_out_focus(struct stream_out *out, long ns)
 static void request_in_focus(struct stream_in *in, long ns)
 {
     struct audio_device *adev = in->dev;
-
-    if (in->routing_change) {
-        in->routing_change = false;
-        if (adev->adm_on_routing_change)
-            adev->adm_on_routing_change(adev->adm_data, in->capture_handle);
-    }
 
     if (adev->adm_request_focus_v2)
         adev->adm_request_focus_v2(adev->adm_data, in->capture_handle, ns);
@@ -2381,10 +2368,12 @@ static int out_set_parameters(struct audio_stream *stream, const char *kvpairs)
             if (!out->standby) {
                 if (!same_dev) {
                     ALOGV("update routing change");
-                    out->routing_change = true;
                     audio_extn_perf_lock_acquire(&adev->perf_lock_handle, 0,
                                                  adev->perf_lock_opts,
                                                  adev->perf_lock_opts_size);
+                    if (adev->adm_on_routing_change)
+                        adev->adm_on_routing_change(adev->adm_data,
+                                                    out->handle);
                 }
                 select_devices(adev, out->usecase);
                 if (!same_dev)
@@ -3214,7 +3203,9 @@ static int in_set_parameters(struct audio_stream *stream, const char *kvpairs)
             /* If recording is in progress, change the tx device to new device */
             if (!in->standby && !in->is_st_session) {
                 ALOGV("update input routing change");
-                in->routing_change = true;
+                if (adev->adm_on_routing_change)
+                        adev->adm_on_routing_change(adev->adm_data,
+                                                    in->capture_handle);
                 ret = select_devices(adev, in->usecase);
             }
         }
@@ -4234,6 +4225,8 @@ static int adev_get_master_mute(struct audio_hw_device *dev __unused,
 static int adev_set_mode(struct audio_hw_device *dev, audio_mode_t mode)
 {
     struct audio_device *adev = (struct audio_device *)dev;
+    struct audio_usecase *uc_info;
+    struct listnode *node;
 
     pthread_mutex_lock(&adev->lock);
     if (adev->mode != mode) {
@@ -4245,6 +4238,12 @@ static int adev_set_mode(struct audio_hw_device *dev, audio_mode_t mode)
             voice_stop_call(adev);
             platform_set_gsm_mode(adev->platform, false);
             adev->current_call_output = NULL;
+
+            // restore device for other active usecases after stop call
+            list_for_each(node, &adev->usecase_list) {
+                uc_info = node_to_item(node, struct audio_usecase, list);
+                select_devices(adev, uc_info->id);
+            }
         }
     }
     pthread_mutex_unlock(&adev->lock);
