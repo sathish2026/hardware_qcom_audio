@@ -265,7 +265,6 @@ LOCAL_SHARED_LIBRARIES := \
 	libaudioroute \
 	libdl \
 	libaudioutils \
-	libhardware \
 	libexpat
 
 LOCAL_C_INCLUDES += \

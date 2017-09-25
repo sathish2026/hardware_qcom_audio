@@ -5423,7 +5423,6 @@ int platform_set_sidetone(struct audio_device *adev,
 int platform_set_snd_device_name(snd_device_t device, const char *name)
 {
     if ((device < SND_DEVICE_MIN) || (device >= SND_DEVICE_MAX)) {
-         ALOGE("℅s:: Invalid snd_device = ℅d", __func__, device);
          return -EINVAL;
     }
 
